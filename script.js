@@ -30,7 +30,7 @@ function playSound(soundId) {
 /*===== 2. 定数定義 =====*/
 // ゲームの基本設定値
 const PLAYER_INITIAL_SHIELD = 5; // プレイヤーの初期シールド数
-const K_MOVE_ENERGY_COST = 3;    // かめはめ波に必要なエネルギーコスト
+const K_MOVE_ENERGY_COST = 3;    // special attackに必要なエネルギーコスト
 
 // UI関連の定数
 const FLASH_DEFAULT_DURATION_MS = 850;  // flashメッセージのデフォルト表示時間 (ミリ秒)
@@ -40,7 +40,7 @@ const RESOLVE_RESET_DELAY_MS = 1000; // 勝敗決定後、ゲームリセット�
 const MOVE_CHARGE = 'c';     // 行動: 溜め
 const MOVE_BLOCK = 'b';      // 行動: 防御
 const MOVE_ATTACK = 'a';     // 行動: 攻撃
-const MOVE_KAMEHAMEHA = 'k'; // 行動: かめはめ波
+const MOVE_KAMEHAMEHA = 'k'; // 行動: special attack
 
 // AI Q学習関連の定数
 const AI_ACTIONS_FOR_Q_LEARNING = [MOVE_ATTACK, MOVE_BLOCK, MOVE_CHARGE]; // Q学習対象のアクション
@@ -102,7 +102,7 @@ const $=id=>document.getElementById(id); // document.getElementByIdのショー�
 const playerEnergyElement = $("pEn"), opponentEnergyElement = $("aEn"); // エネルギー表示要素
 const playerShieldElement = $("pSh"), opponentShieldElement = $("aSh"); // シールド表示要素
 const chargeButtonElement = $("btnC"), blockButtonElement = $("btnB");   // 行動ボタン要素 (溜め、防御)
-const attackButtonElement = $("btnA"), kamehamehaButtonElement = $("btnK"); // 行動ボタン要素 (攻撃、かめはめ波)
+const attackButtonElement = $("btnA"), kamehamehaButtonElement = $("btnK"); // 行動ボタン要素 (攻撃、special attack)
 const cutinElement = $("cutin"), resultMessageElement = $("result");     // カットイン表示要素、結果メッセージ表示要素
 const allActionButtons = [chargeButtonElement, blockButtonElement, attackButtonElement, kamehamehaButtonElement]; // プレイヤーの行動ボタンの配列
 const pveModeButtonElement = $("btnPvE"), pvpModeButtonElement = $("btnPvP"), eveModeButtonElement = $("btnEvE"); // モード選択ボタン要素 (btnEvE を追加)
@@ -117,7 +117,7 @@ const player2NameDisplayElement = $("p2Name"); // プレイヤー2名表示要�
 // UI表示を更新する関数群
 
 /**
- * プレイヤーと相手のエネルギー、シールドをUIに反映し、かめはめ波ボタンの表示/非表示を切り替える
+ * プレイヤーと相手のエネルギー、シールドをUIに反映し、special attackボタンの表示/非表示を切り替える
  */
 function showUI(){
   if (currentGameMode === GAME_MODE_EVE) {
@@ -129,7 +129,7 @@ function showUI(){
     player1NameDisplayElement.textContent = "AI 1";
     player2NameDisplayElement.textContent = "AI 2";
     allActionButtons.forEach(btn => btn.style.display = 'none'); // プレイヤー操作ボタンを非表示
-    kamehamehaButtonElement.style.display = 'none'; // かめはめ波ボタンも非表示
+    kamehamehaButtonElement.style.display = 'none'; // special attackボタンも非表示
   } else {
     player1NameDisplayElement.textContent = "あなた"; // PvE, PvP時はプレイヤー名
     player2NameDisplayElement.textContent = currentGameMode === GAME_MODE_PVE ? UI_MSG_AI_OPPONENT_NAME : UI_MSG_PLAYER_OPPONENT_NAME; // 対戦相手名
@@ -258,7 +258,7 @@ function aiStrategy(){
   const validMovesForAISelf = getValidMovesForAI(aiSelfEnergy, aiSelfShield);
 
   // 1. 固定ルール (特定の状況下で最善と思われる行動)
-  // 自分AIがかめはめ波を撃てる場合は必ず撃つ
+  // 自分AIがspecial attackを撃てる場合は必ず撃つ
   if (validMovesForAISelf.includes(MOVE_KAMEHAMEHA)) {
     return MOVE_KAMEHAMEHA;
   }
@@ -538,10 +538,10 @@ function resolveMoves(playerMove, opponentMove) {
     p2DisplayName = "AI 2"; // EvEモードでのプレイヤー2側表示名
   }
 
-  // かめはめ波の判定 (最優先)
+  // special attackの判定 (最優先)
   if (playerMove === MOVE_KAMEHAMEHA && opponentMove === MOVE_KAMEHAMEHA) {
-    playSound('soundKamehameha'); // 両者かめはめ波の音
-    flashMessage('K 同士！EN-3', resetGame); // 両者かめはめ波: 引き分け (エネルギー消費のみ)
+    playSound('soundKamehameha'); // 両者special attackの音
+    flashMessage('K 同士！EN-3', resetGame); // 両者special attack: 引き分け (エネルギー消費のみ)
     gameEnded = true;
     playerWon = null; // K-Kの引き分け
   } else if (playerMove === MOVE_KAMEHAMEHA && opponentMove !== MOVE_KAMEHAMEHA) {
@@ -556,7 +556,7 @@ function resolveMoves(playerMove, opponentMove) {
     flashMessage(`${p2DisplayName} K 勝利！`, resetGame);
     gameEnded = true;
     playerWon = false;
-  // 通常行動の判定 (かめはめ波以外)
+  // 通常行動の判定 (special attack以外)
   } else if (playerMove === MOVE_ATTACK && opponentMove === MOVE_CHARGE) {
     playSound('soundAttack');
     playSound('soundGameend');
@@ -640,7 +640,7 @@ function processMoves(playerMove, opponentMove, isOnlineGame) {
     [MOVE_ATTACK]: '攻撃',
     [MOVE_BLOCK]: '防御',
     [MOVE_CHARGE]: '溜め',
-    [MOVE_KAMEHAMEHA]: 'かめはめ波'
+    [MOVE_KAMEHAMEHA]: 'special attack'
   };
   let p1DisplayName = "あなた";
   let p2DisplayName = (currentGameMode === GAME_MODE_PVE) ? UI_MSG_AI_OPPONENT_NAME : UI_MSG_PLAYER_OPPONENT_NAME;
