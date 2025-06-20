@@ -39,7 +39,7 @@
       <li><b>溜める(c)</b> … エネルギー +1</li>
       <li><b>守る(b)</b> … シールド -1 / 攻撃を受ければ EN +1</li>
       <li><b>攻撃(a)</b> … EN -1 で攻撃。相手が溜め中なら勝利</li>
-      <li><b>Special attack(k)</b> … EN -3。命中すれば即勝利。同士討ちは相殺</li>
+      <li><b>Special attack(S)</b> … EN -3。命中すれば即勝利。同士討ちは相殺</li>
     </ul>
   </div>
 
@@ -57,11 +57,19 @@
     </div>
   </div>
 
+  <!-- ==== 行動履歴ログ ==== -->
+  <div id="actionLogContainer">
+    <h3>行動履歴</h3>
+    <div id="turnHistoryLog">
+      <!-- ターンごとの行動がここに表示されます -->
+    </div>
+  </div>
+
   <!-- ==== 操作ボタン ==== -->
-  <button id="btnC">溜める(c)</button>
-  <button id="btnB">守る(b)</button>
-  <button id="btnA">攻撃(a)</button>
-  <button id="btnK" style="display:none;">Special attack(k)</button>
+  <button id="btnA" class="action-button action-button-attack">攻撃(a)</button>
+  <button id="btnB" class="action-button action-button-defend">守る(b)</button>
+  <button id="btnC" class="action-button action-button-charge">溜める(c)</button>
+  <button id="btnS" style="display:none;">Special attack(S)</button>
 
   <p id="result"></p>
   <div id="cutin"></div>
