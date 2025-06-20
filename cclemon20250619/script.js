@@ -30,17 +30,18 @@ function playSound(soundId) {
 /*===== 2. 定数定義 =====*/
 // ゲームの基本設定値
 const PLAYER_INITIAL_SHIELD = 5; // プレイヤーの初期シールド数
-const K_MOVE_ENERGY_COST = 3;    // かめはめ波に必要なエネルギーコスト
+const SPECIAL_ACTION_ENERGY_COST = 3;    // Special Actionに必要なエネルギーコスト
 
 // UI関連の定数
-const FLASH_DEFAULT_DURATION_MS = 850;  // flashメッセージのデフォルト表示時間 (ミリ秒)
+const FLASH_DEFAULT_DURATION_MS = 850;  // flashメッセージのデフォルト表示時間 (ミリ秒) - 行動カットイン用に戻す
+const FLASH_WIN_LOSE_DURATION_MS = 2500; // 勝利・敗北メッセージの表示時間 (ミリ秒) - 長くする
 const RESOLVE_RESET_DELAY_MS = 1000; // 勝敗決定後、ゲームリセットまでの遅延時間 (ミリ秒)
 
 // プレイヤーの行動を表す定数
-const MOVE_CHARGE = 'c';     // 行動: 溜め
-const MOVE_BLOCK = 'b';      // 行動: 防御
-const MOVE_ATTACK = 'a';     // 行動: 攻撃
-const MOVE_KAMEHAMEHA = 'k'; // 行動: かめはめ波
+const MOVE_CHARGE = 'c';        // 行動: 溜め
+const MOVE_BLOCK = 'b';         // 行動: 防御
+const MOVE_ATTACK = 'a';        // 行動: 攻撃
+const MOVE_SPECIAL_ACTION = 's'; // 行動: Special Action (旧かめはめ波)
 
 // AI Q学習関連の定数
 const AI_ACTIONS_FOR_Q_LEARNING = [MOVE_ATTACK, MOVE_BLOCK, MOVE_CHARGE]; // Q学習対象のアクション
@@ -83,7 +84,7 @@ const EPSILON_INCREASE_ON_NEGATIVE_VALUE = 0.3; // Q値が負の場合にε値�
 const AI_RANDOM_CHOICE_PROBABILITY = 0.5; // ε-greedyで最善手がない場合や、特定条件下でランダム行動を選択する確率
 
 // EvE モード関連の定数 (New)
-const EVE_TURN_DELAY_MS = 500; // EvEモードのターン間遅延 (ミリ秒)
+const EVE_TURN_DELAY_MS = 1000; // EvEモードのターン間遅延 (ミリ秒) - 500から変更
 
 /*===== 3. ゲーム共通状態 =====*/
 // ゲーム中に変動するプレイヤーと相手の状態
@@ -92,6 +93,7 @@ let playerShield = PLAYER_INITIAL_SHIELD, opponentShield = PLAYER_INITIAL_SHIELD
 let isInputLocked = false; // プレイヤーの入力がロックされているか (true:ロック中, false:入力可能)
 let currentGameMode = GAME_MODE_PVE; // 現在のゲームモード (初期値はPvE)
 let pveLoseStreak = 0; // PvEモードでのAIの連敗数 (AIの戦略調整用)
+let currentTurnNumber = 0; // 現在のターン数を記録
 const qLearningTrajectory = []; // 1ゲーム内のAIの行動と状態の履歴 (Q学習用)
 const qLearningTable = JSON.parse(localStorage.getItem(Q_TABLE_LOCAL_STORAGE_KEY) || "{}"); // Q学習テーブル (ローカルストレージから読み込み)
 let isEveGameRunning = false; // EvEモードのゲームが実行中かどうかのフラグ (New)
@@ -101,10 +103,10 @@ let isEveGameRunning = false; // EvEモードのゲームが実行中かどう�
 const $=id=>document.getElementById(id); // document.getElementByIdのショートハンド
 const playerEnergyElement = $("pEn"), opponentEnergyElement = $("aEn"); // エネルギー表示要素
 const playerShieldElement = $("pSh"), opponentShieldElement = $("aSh"); // シールド表示要素
-const chargeButtonElement = $("btnC"), blockButtonElement = $("btnB");   // 行動ボタン要素 (溜め、防御)
-const attackButtonElement = $("btnA"), kamehamehaButtonElement = $("btnK"); // 行動ボタン要素 (攻撃、かめはめ波)
+const chargeButtonElement = $("btnC"), blockButtonElement = $("btnB");        // 行動ボタン要素 (溜め、防御)
+const attackButtonElement = $("btnA"), specialActionButtonElement = $("btnS"); // 行動ボタン要素 (攻撃、Special Action)
 const cutinElement = $("cutin"), resultMessageElement = $("result");     // カットイン表示要素、結果メッセージ表示要素
-const allActionButtons = [chargeButtonElement, blockButtonElement, attackButtonElement, kamehamehaButtonElement]; // プレイヤーの行動ボタンの配列
+const allActionButtons = [chargeButtonElement, blockButtonElement, attackButtonElement, specialActionButtonElement]; // プレイヤーの行動ボタンの配列
 const pveModeButtonElement = $("btnPvE"), pvpModeButtonElement = $("btnPvP"), eveModeButtonElement = $("btnEvE"); // モード選択ボタン要素 (btnEvE を追加)
 const onlinePanelElement = $("onlinePanel"); // PvP用オンラインパネル要素
 const createRoomButtonElement = $("btnCreate"), joinRoomButtonElement = $("btnJoin"); // ルーム作成/参加ボタン要素
@@ -112,12 +114,13 @@ const roomIdDisplayElement = $("roomIdDisp"); // ルームID表示要素
 const joinRoomIdInputElement = $("joinId"), onlineMessageElement = $("onlineMsg"); // ルームID入力要素、オンラインメッセージ表示要素
 const player1NameDisplayElement = $("p1Name"); // プレイヤー1名表示要素 (旧opNameの役割も含む)
 const player2NameDisplayElement = $("p2Name"); // プレイヤー2名表示要素
+const turnHistoryLogElement = $("turnHistoryLog"); // 新しい行動履歴ログ要素
 
 /*===== 5. UIヘルパー関数 =====*/
 // UI表示を更新する関数群
 
 /**
- * プレイヤーと相手のエネルギー、シールドをUIに反映し、かめはめ波ボタンの表示/非表示を切り替える
+ * プレイヤーと相手のエネルギー、シールドをUIに反映し、Special Actionボタンの表示/非表示を切り替える
  */
 function showUI(){
   if (currentGameMode === GAME_MODE_EVE) {
@@ -129,14 +132,14 @@ function showUI(){
     player1NameDisplayElement.textContent = "AI 1";
     player2NameDisplayElement.textContent = "AI 2";
     allActionButtons.forEach(btn => btn.style.display = 'none'); // プレイヤー操作ボタンを非表示
-    kamehamehaButtonElement.style.display = 'none'; // かめはめ波ボタンも非表示
+    specialActionButtonElement.style.display = 'none'; // Special Actionボタンも非表示
   } else {
     player1NameDisplayElement.textContent = "あなた"; // PvE, PvP時はプレイヤー名
     player2NameDisplayElement.textContent = currentGameMode === GAME_MODE_PVE ? UI_MSG_AI_OPPONENT_NAME : UI_MSG_PLAYER_OPPONENT_NAME; // 対戦相手名
     playerEnergyElement.textContent = playerEnergy; opponentEnergyElement.textContent = opponentEnergy;
     playerShieldElement.textContent = playerShield; opponentShieldElement.textContent = opponentShield;
     allActionButtons.forEach(btn => btn.style.display = 'inline-block'); // プレイヤー操作ボタンを表示
-    kamehamehaButtonElement.style.display = playerEnergy >= K_MOVE_ENERGY_COST ? 'inline-block' : 'none';
+    specialActionButtonElement.style.display = playerEnergy >= SPECIAL_ACTION_ENERGY_COST ? 'inline-block' : 'none';
   }
 }
 /**
@@ -156,19 +159,28 @@ function unlockInput() {
 /**
  * 画面中央にメッセージを一時的に表示する (カットイン風)
  * @param {string} text 表示するメッセージ
+ * @param {number} [duration] 表示時間 (ミリ秒)。指定しない場合はFLASH_DEFAULT_DURATION_MSを使用
+ * @param {string} text 表示するメッセージ
  * @param {function} [callback] 表示終了後に実行するコールバック関数
  */
-function flashMessage(text, callback) {
+function flashMessage(text, duration, callback) {
   lockInput(); // メッセージ表示中は入力をロック
   cutinElement.textContent = text;
   cutinElement.style.display = 'block';
+  const displayDuration = duration || FLASH_DEFAULT_DURATION_MS;
+
+  // メッセージの長さに応じてフォントサイズを調整 (任意)
+  if (text.length > 30) cutinElement.style.fontSize = '2em';
+  else if (text.length > 20) cutinElement.style.fontSize = '2.5em';
+  else cutinElement.style.fontSize = '3.2em';
+
   setTimeout(() => {
     cutinElement.style.display = 'none';
     if (currentGameMode !== GAME_MODE_EVE) { // EvEモードでない場合のみ入力ロック解除
       unlockInput();
     }
     if (callback) callback();
-  }, FLASH_DEFAULT_DURATION_MS);
+  }, displayDuration); // 正しい表示時間を使用
 }
 /**
  * Q学習用の現在の状態キーを生成する (プレイヤーEN_相手EN)
@@ -190,8 +202,8 @@ function getValidMovesForAI(currentEnergy, currentShield) {
     if (currentShield > 0) {
         validMoves.push(MOVE_BLOCK);
     }
-    if (currentEnergy >= K_MOVE_ENERGY_COST) {
-        validMoves.push(MOVE_KAMEHAMEHA);
+    if (currentEnergy >= SPECIAL_ACTION_ENERGY_COST) {
+        validMoves.push(MOVE_SPECIAL_ACTION);
     }
     return validMoves;
 }
@@ -258,9 +270,9 @@ function aiStrategy(){
   const validMovesForAISelf = getValidMovesForAI(aiSelfEnergy, aiSelfShield);
 
   // 1. 固定ルール (特定の状況下で最善と思われる行動)
-  // 自分AIがかめはめ波を撃てる場合は必ず撃つ
-  if (validMovesForAISelf.includes(MOVE_KAMEHAMEHA)) {
-    return MOVE_KAMEHAMEHA;
+  // 自分AIがSpecial Actionを撃てる場合は必ず撃つ
+  if (validMovesForAISelf.includes(MOVE_SPECIAL_ACTION)) {
+    return MOVE_SPECIAL_ACTION;
   }
   // 相手と自分のエネルギーが0なら溜める
   if (aiSelfEnergy === 0 && aiOpponentEnergy === 0 && validMovesForAISelf.includes(MOVE_CHARGE)) {
@@ -322,7 +334,7 @@ function aiStrategy(){
     // 相手にENがなく、自分にSHがあれば防御
     else if (aiSelfShield > 0 && validMovesForAISelf.includes(MOVE_BLOCK)) return MOVE_BLOCK;
   }
-  if (aiSelfEnergy >= K_MOVE_ENERGY_COST) { // AI自身がKを撃てるENを持っている
+  if (aiSelfEnergy >= SPECIAL_ACTION_ENERGY_COST) { // AI自身がSpecial Actionを撃てるENを持っている
     // 自分SHあり且つ相手SHあれば防御
     if (aiSelfShield > 0 && aiOpponentShield > 0 && validMovesForAISelf.includes(MOVE_BLOCK)) return MOVE_BLOCK;
     // なければ相手EN見て攻撃か溜め
@@ -537,36 +549,47 @@ function resolveMoves(playerMove, opponentMove) {
     p1DisplayName = "AI 1"; // EvEモードでのプレイヤー1側表示名
     p2DisplayName = "AI 2"; // EvEモードでのプレイヤー2側表示名
   }
+  // PvP時の相手表示名を英語に補正
+  let opponentNameForMessage = p2DisplayName;
+  if (currentGameMode === GAME_MODE_PVP && p2DisplayName === UI_MSG_PLAYER_OPPONENT_NAME && UI_MSG_PLAYER_OPPONENT_NAME === '相手') {
+    opponentNameForMessage = 'Opponent';
+  }
 
-  // かめはめ波の判定 (最優先)
-  if (playerMove === MOVE_KAMEHAMEHA && opponentMove === MOVE_KAMEHAMEHA) {
-    playSound('soundKamehameha'); // 両者かめはめ波の音
-    flashMessage('K 同士！EN-3', resetGame); // 両者かめはめ波: 引き分け (エネルギー消費のみ)
+  const specialActionDisplayName = 'Special Action'; // 表示用の技名
+
+  // Special Actionの判定 (最優先)
+  if (playerMove === MOVE_SPECIAL_ACTION && opponentMove === MOVE_SPECIAL_ACTION) {
+    playSound('soundKamehameha'); // 両者Special Actionの音
+    flashMessage(`${specialActionDisplayName} vs ${specialActionDisplayName}! Energy -${SPECIAL_ACTION_ENERGY_COST}`, FLASH_WIN_LOSE_DURATION_MS, resetGame); // 長い表示時間
     gameEnded = true;
-    playerWon = null; // K-Kの引き分け
-  } else if (playerMove === MOVE_KAMEHAMEHA && opponentMove !== MOVE_KAMEHAMEHA) {
-    playSound('soundKamehameha');
+    playerWon = null; // Special Action同士の引き分け
+  } else if (playerMove === MOVE_SPECIAL_ACTION && opponentMove !== MOVE_SPECIAL_ACTION) {
+    playSound('soundKamehameha'); // Special Actionの音
     playSound('soundGameend');
-    flashMessage(`${p1DisplayName} K 勝利！`, resetGame);
+    let winMsg = p1DisplayName === "あなた" ? `You win with ${specialActionDisplayName}!` : `${p1DisplayName} wins with ${specialActionDisplayName}!`;
+    flashMessage(winMsg, FLASH_WIN_LOSE_DURATION_MS, resetGame); // 長い表示時間
     gameEnded = true;
     playerWon = true;
-  } else if (opponentMove === MOVE_KAMEHAMEHA && playerMove !== MOVE_KAMEHAMEHA) {
-    playSound('soundKamehameha');
+  } else if (opponentMove === MOVE_SPECIAL_ACTION && playerMove !== MOVE_SPECIAL_ACTION) {
+    playSound('soundKamehameha'); // Special Actionの音
     playSound('soundGameend');
-    flashMessage(`${p2DisplayName} K 勝利！`, resetGame);
+    let winMsg = `${opponentNameForMessage} wins with ${specialActionDisplayName}!`;
+    flashMessage(winMsg, FLASH_WIN_LOSE_DURATION_MS, resetGame); // 長い表示時間
     gameEnded = true;
     playerWon = false;
-  // 通常行動の判定 (かめはめ波以外)
+  // 通常行動の判定 (Special Action以外)
   } else if (playerMove === MOVE_ATTACK && opponentMove === MOVE_CHARGE) {
     playSound('soundAttack');
     playSound('soundGameend');
-    flashMessage(`${p1DisplayName} 勝利！`, resetGame);
+    let winMsg = p1DisplayName === "あなた" ? "You win!" : `${p1DisplayName} wins!`;
+    flashMessage(winMsg, FLASH_WIN_LOSE_DURATION_MS, resetGame); // 表示時間を指定
     gameEnded = true;
     playerWon = true;
   } else if (playerMove === MOVE_CHARGE && opponentMove === MOVE_ATTACK) {
     playSound('soundAttack');
-    playSound('soundGameend');
-    flashMessage(`${p2DisplayName} 勝利！`, () => { setTimeout(resetGame, RESOLVE_RESET_DELAY_MS); });
+    playSound('soundGameend'); // 長い表示時間
+    let winMsg = `${opponentNameForMessage} wins!`;
+    flashMessage(winMsg, FLASH_WIN_LOSE_DURATION_MS, () => { setTimeout(resetGame, RESOLVE_RESET_DELAY_MS); }); // 表示時間を指定
     gameEnded = true;
     playerWon = false;
   }
@@ -576,18 +599,21 @@ function resolveMoves(playerMove, opponentMove) {
   if (gameEnded && (currentGameMode === GAME_MODE_PVE || currentGameMode === GAME_MODE_EVE)) {
     // PvE: playerWonは人間プレイヤーの勝敗。AIの報酬は逆。
     // EvE: playerWonはAI1の勝敗。AI1の報酬はそのまま。
-    const rewardForLearningAI = (currentGameMode === GAME_MODE_PVE) ? (playerWon === true ? -1 : (playerWon === false ? 1 : 0)) :
-                                 (currentGameMode === GAME_MODE_EVE) ? (playerWon === true ? 1 : (playerWon === false ? -1 : 0)) : 0;
+    let rewardForLearningAI = 0;
+    if (playerWon === true) { // p1 (あなた or AI1) が勝利
+      rewardForLearningAI = (currentGameMode === GAME_MODE_PVE) ? -1 : 1; // PvEならAIは負け(-1), EvEならAI1は勝ち(1)
+    } else if (playerWon === false) { // p1 (あなた or AI1) が敗北
+      rewardForLearningAI = (currentGameMode === GAME_MODE_PVE) ? 1 : -1; // PvEならAIは勝ち(1), EvEならAI1は負け(-1)
+    } // playerWon === null (引き分け) の場合は rewardForLearningAI は 0 のまま
 
-    if (playerWon === true) { // AIが負けた場合
-      updateQ(-1); // AIに負の報酬
-      pveLoseStreak++;
-    } else if (playerWon === false) { // AIが勝った場合
-      updateQ(1); // AIに正の報酬
-      pveLoseStreak = 0;
-    } else { // 引き分け (K-Kなど)
-      updateQ(0); // AIに報酬0
-      pveLoseStreak = 0;
+    updateQ(rewardForLearningAI);
+
+    if (currentGameMode === GAME_MODE_PVE) { // PvEモードのAIの連敗記録のみ更新
+      if (playerWon === true) { // 人間プレイヤーが勝った (AIが負けた)
+        pveLoseStreak++;
+      } else { // 人間プレイヤーが負けたか引き分け
+        pveLoseStreak = 0;
+      }
     }
   }
   return gameEnded; // 勝敗が決まったか否かを返す
@@ -610,8 +636,8 @@ function processMoves(playerMove, opponentMove, isOnlineGame) {
   if (opponentMove === MOVE_CHARGE) { opponentEnergy++; playSound('soundTameru'); opponentActionSoundPlayed = true; }
   if (playerMove === MOVE_ATTACK) playerEnergy--;
   if (opponentMove === MOVE_ATTACK) opponentEnergy--;
-  if (playerMove === MOVE_KAMEHAMEHA) playerEnergy -= K_MOVE_ENERGY_COST;
-  if (opponentMove === MOVE_KAMEHAMEHA) opponentEnergy -= K_MOVE_ENERGY_COST;
+  if (playerMove === MOVE_SPECIAL_ACTION) playerEnergy -= SPECIAL_ACTION_ENERGY_COST;
+  if (opponentMove === MOVE_SPECIAL_ACTION) opponentEnergy -= SPECIAL_ACTION_ENERGY_COST;
   // シールド変動
   if (playerMove === MOVE_BLOCK) playerShield--;
   if (opponentMove === MOVE_BLOCK) opponentShield--;
@@ -628,11 +654,11 @@ function processMoves(playerMove, opponentMove, isOnlineGame) {
     opponentActionSoundPlayed = true;
   }
 
-  // 攻撃がヒットした場合の音 (防御されず、かつK技や攻撃vs溜めで勝敗が決まらない場合)
-  if (playerMove === MOVE_ATTACK && opponentMove !== MOVE_BLOCK && opponentMove !== MOVE_KAMEHAMEHA && opponentMove !== MOVE_CHARGE && !playerActionSoundPlayed) {
+  // 攻撃がヒットした場合の音 (防御されず、かつSpecial Actionや攻撃vs溜めで勝敗が決まらない場合)
+  if (playerMove === MOVE_ATTACK && opponentMove !== MOVE_BLOCK && opponentMove !== MOVE_SPECIAL_ACTION && opponentMove !== MOVE_CHARGE && !playerActionSoundPlayed) {
     playSound('soundAttack');
   }
-  if (opponentMove === MOVE_ATTACK && playerMove !== MOVE_BLOCK && playerMove !== MOVE_KAMEHAMEHA && playerMove !== MOVE_CHARGE && !opponentActionSoundPlayed) {
+  if (opponentMove === MOVE_ATTACK && playerMove !== MOVE_BLOCK && playerMove !== MOVE_SPECIAL_ACTION && playerMove !== MOVE_CHARGE && !opponentActionSoundPlayed) {
     playSound('soundAttack');
   }
   // 行動名の表示用マッピング
@@ -640,7 +666,7 @@ function processMoves(playerMove, opponentMove, isOnlineGame) {
     [MOVE_ATTACK]: '攻撃',
     [MOVE_BLOCK]: '防御',
     [MOVE_CHARGE]: '溜め',
-    [MOVE_KAMEHAMEHA]: 'かめはめ波'
+    [MOVE_SPECIAL_ACTION]: 'Special Action'
   };
   let p1DisplayName = "あなた";
   let p2DisplayName = (currentGameMode === GAME_MODE_PVE) ? UI_MSG_AI_OPPONENT_NAME : UI_MSG_PLAYER_OPPONENT_NAME;
@@ -649,30 +675,32 @@ function processMoves(playerMove, opponentMove, isOnlineGame) {
     p2DisplayName = "AI 2";
   }
 
-
+  // 新しい行動履歴ログに記録
+  currentTurnNumber++;
+  const logMessage = `Turn ${currentTurnNumber}: ${p1DisplayName} - ${MOVE_DISPLAY_NAMES[playerMove]} | ${p2DisplayName} - ${MOVE_DISPLAY_NAMES[opponentMove]}`;
+  if (turnHistoryLogElement) {
+      turnHistoryLogElement.innerHTML += `<div>${logMessage}</div>`;
+      turnHistoryLogElement.scrollTop = turnHistoryLogElement.scrollHeight; // 常に最新のログが見えるようにスクロール
+  }
   // 2. 行動結果をflashメッセージで表示し、そのコールバックで勝敗判定とUI更新を行う
-  flashMessage(`${p1DisplayName}:${MOVE_DISPLAY_NAMES[playerMove]}／${p2DisplayName}:${MOVE_DISPLAY_NAMES[opponentMove]}`, () => {
-    if (resolveMoves(playerMove, opponentMove)) {
-      // 勝敗が決まった場合: resolveMoves内で結果がflashされ、resetGameが呼ばれる。
-      // EvEモードの場合、ゲームが終了したらループを続けるか確認
-      if (currentGameMode === GAME_MODE_EVE && isEveGameRunning) {
-        // resetGameの後に次のゲームを開始するために遅延を入れるか、
-        // またはresetGameのコールバックでrunEveGameTurnを呼ぶ
-        setTimeout(runEveGameTurn, EVE_TURN_DELAY_MS); 
-      }
-    } else {
-      // 勝敗が決まらなかった場合 (ゲーム続行): UIを更新
+  flashMessage(`${p1DisplayName}:${MOVE_DISPLAY_NAMES[playerMove]}／${p2DisplayName}:${MOVE_DISPLAY_NAMES[opponentMove]}`, FLASH_DEFAULT_DURATION_MS, () => {
+    const gameJustEnded = resolveMoves(playerMove, opponentMove); // 勝敗判定を実行し、結果を取得
 
+    if (gameJustEnded) {
+      // 勝敗が決まった場合:
+      // resolveMoves内で勝利/敗北メッセージのflashMessageが呼ばれ、
+      // そのflashMessageのコールバックでresetGameが呼ばれる。
+      // resetGame内でEvEモードの次のターンがスケジュールされるため、ここでは何もしない。
+    } else {
+      // 勝敗が決まらなかった場合 (ゲーム続行):
       showUI();
       if (currentGameMode === GAME_MODE_PVP && isOnlineGame) {
         // PvPモードでゲームが続く場合、次の行動を促すメッセージを表示
         onlineMessageElement.textContent = UI_MSG_MATCH_READY_CHOOSE_ACTION;
       } else if (currentGameMode === GAME_MODE_PVE || currentGameMode === GAME_MODE_EVE) {
-        // PvEモードでゲームが続く場合 (勝敗未決着)、AIに報酬0でQ学習を更新
-        // EvEモードでゲームが続く場合、AI1に報酬0でQ学習を更新
-        // (K-K以外の引き分けや、攻撃vs防御などの場合)
-
-        updateQ(0); 
+        // PvE/EvEモードでゲームが続く場合 (勝敗未決着)、AIに報酬0でQ学習を更新
+        // (Special Action同士以外の引き分けや、攻撃vs防御などの場合など)
+        updateQ(0);
         if (currentGameMode === GAME_MODE_EVE && isEveGameRunning) {
           setTimeout(runEveGameTurn, EVE_TURN_DELAY_MS); // 次のターンへ
         }
@@ -691,14 +719,14 @@ function handlePlayerTurn(playerMove) {
 
   // 行動の妥当性チェック (エネルギー、シールド残量)
   if (playerMove === MOVE_ATTACK && playerEnergy === 0) { resultMessageElement.textContent = UI_MSG_INSUFFICIENT_ENERGY; return; }
-  if (playerMove === MOVE_KAMEHAMEHA && playerEnergy < K_MOVE_ENERGY_COST) { resultMessageElement.textContent = UI_MSG_INSUFFICIENT_ENERGY; return; }
+  if (playerMove === MOVE_SPECIAL_ACTION && playerEnergy < SPECIAL_ACTION_ENERGY_COST) { resultMessageElement.textContent = UI_MSG_INSUFFICIENT_ENERGY; return; }
   if (playerMove === MOVE_BLOCK && playerShield === 0) { resultMessageElement.textContent = UI_MSG_INSUFFICIENT_SHIELD; return; }
   resultMessageElement.textContent = ''; // エラーメッセージをクリア
 
   if (currentGameMode === GAME_MODE_PVE) { // PvEモードの場合
     const aiMove = aiStrategy(); // AIの行動を決定
-    // AIの行動がQ学習対象 (K以外) であれば、軌跡に追加
-    if (aiMove !== MOVE_KAMEHAMEHA) {
+    // AIの行動がQ学習対象 (Special Action以外) であれば、軌跡に追加
+    if (aiMove !== MOVE_SPECIAL_ACTION) {
       qLearningTrajectory.push({ s: getCurrentStateKey(), a: aiMove });
     }
     // プレイヤーとAIの行動を処理
@@ -715,21 +743,29 @@ function handlePlayerTurn(playerMove) {
  * ゲーム状態を初期値にリセットする
  */
 function resetGame() {
+  currentTurnNumber = 0; // ターン数をリセット
+  if (turnHistoryLogElement) {
+    turnHistoryLogElement.innerHTML = ""; // 行動履歴ログをクリア
+  }
+
   playerEnergy = 0; opponentEnergy = 0;
   playerShield = PLAYER_INITIAL_SHIELD; opponentShield = PLAYER_INITIAL_SHIELD;
   showUI(); // UIを初期状態に更新
-  currentEpisodeBonusRewardForAI = 0; // エピソードボーナス報酬をリセット (New)
-  unlockInput(); // 基本的に入力ロック解除 (EvEモードの場合はshowUIと後続処理で再ロック/非表示)
   resultMessageElement.textContent = ''; // 結果メッセージをクリア
 
   if (currentGameMode === GAME_MODE_EVE) {
     onlineMessageElement.textContent = UI_MSG_EVE_MODE_ACTIVE;
     lockInput(); // EvEモードでは常に入力をロック
     // showUI()が呼ばれることでボタンは非表示になる
+    if (isEveGameRunning) { // EvEゲームループが継続中の場合のみ次のターンをスケジュール
+        setTimeout(runEveGameTurn, EVE_TURN_DELAY_MS);
+    }
   } else if (currentGameMode === GAME_MODE_PVP) {
     onlineMessageElement.textContent = currentRoomRef ? UI_MSG_CHOOSE_ACTION : '';
+    unlockInput(); // PvPではリセット後入力解除
   } else { // PvE
     onlineMessageElement.textContent = '';
+    unlockInput(); // PvEではリセット後入力解除
   }
   // PvEの場合、qLearningTrajectoryはupdateQ関数内でクリアされる
   // pveLoseStreakは勝敗決定時に更新されるので、ここではリセットしない
@@ -757,7 +793,7 @@ function runEveGameTurn() {
     return;
   }
 
-  // AI1 (player側, 学習AI) の行動決定
+  // AI1 (player側, 学習AI) の行動決定 - ゲームが終了していない場合のみ
   const ai1Move = aiStrategy(); // 既存のaiStrategyを使用
   // AI1の行動がQ学習対象であれば軌跡に追加
   // getCurrentStateKeyはplayerEnergy, opponentEnergyを参照するので、AI1の視点になる
@@ -775,7 +811,7 @@ function runEveGameTurn() {
 chargeButtonElement.onclick = () => handlePlayerTurn(MOVE_CHARGE);
 blockButtonElement.onclick = () => handlePlayerTurn(MOVE_BLOCK);
 attackButtonElement.onclick = () => handlePlayerTurn(MOVE_ATTACK);
-kamehamehaButtonElement.onclick = () => handlePlayerTurn(MOVE_KAMEHAMEHA);
+specialActionButtonElement.onclick = () => handlePlayerTurn(MOVE_SPECIAL_ACTION);
 
 // PvEモード選択ボタン
 pveModeButtonElement.onclick = () => {

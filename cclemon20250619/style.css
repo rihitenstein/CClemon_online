@@ -66,18 +66,28 @@
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
     }
 
-    button#btnA {
-        background-color: #e53935; /* 赤 */
-    }
+
+
+    /* ==== 操作ボタンの個別色 ==== */
+    /* 攻撃ボタン (btnA) */
     button#btnA:hover::before {
         border-color: #ff1744;
         box-shadow: 0 0 15px #ff1744;
     }
+    /* 防御ボタン (btnB) */
+    button#btnB.action-button-defend:hover::before {
+        border-color: #2980B9; /* 青系のホバーネオン */
+        box-shadow: 0 0 15px #2980B9;
+    }
+    button#btnC.action-button-charge:hover::before {
+        border-color: #b8ca16; /* 緑系のホバーネオン */
+        box-shadow: 0 0 15px #b8ca16;
+    }
 
-    button#btnK {
+    button#btnS {
         background-color: #1e88e5; /* 青 */
     }
-    button#btnK:hover::before {
+    button#btnS:hover::before {
         border-color: #2196F3;
         box-shadow: 0 0 15px #2196F3;
     }
@@ -100,6 +110,7 @@
         box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
         flex: 1;
         min-width: 280px;
+        position: relative; /* for move history positioning */
     }
 
     .box span {
@@ -192,6 +203,29 @@
         margin: 15px 0;
         font-size: 1.2em;
         text-shadow: 0 0 5px rgba(255, 87, 34, 0.5);
+    }
+
+    #actionLogContainer {
+        margin: 25px auto;
+        max-width: 700px;
+        background: #212121;
+        padding: 15px 25px;
+        border: 1px solid #424242;
+        border-radius: 15px;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    #turnHistoryLog {
+        background-color: #1a1a1a; /* Log background */
+        border: 1px solid #303030;
+        border-radius: 8px;
+        padding: 10px;
+        max-height: 150px; /* Adjust as needed */
+        overflow-y: auto;  /* Enable vertical scroll */
+        text-align: left;
+        font-size: 0.9em;
+        line-height: 1.5;
+        color: #cccccc; /* Lighter text for log entries */
     }
 
     .disabled {
