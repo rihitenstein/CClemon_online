@@ -22,9 +22,13 @@
   <!-- ==== オンライン：部屋操作パネル ==== -->
   <div id="onlinePanel">
     <div>
-      <button id="btnCreate">部屋を作る</button>　
+      <button id="btnCreate">部屋を作る</button>
       ルーム ID: <span id="roomIdDisp">---</span>
     </div>
+    <div style="margin-top:6px;">
+      プレイヤー名: <input id="playerName" type="text" placeholder="あなたの名前 (10文字以内)" maxlength="10">
+    </div>
+
     <div style="margin-top:6px;">
       <input id="joinId" type="text" placeholder="ルームID">
       <button id="btnJoin">参加</button>
@@ -36,10 +40,10 @@
   <div id="tech">
     <h3>技説明</h3>
     <ul>
-      <li><b>溜める(c)</b> … エネルギー +1</li>
-      <li><b>守る(b)</b> … シールド -1 / 攻撃を受ければ EN +1</li>
-      <li><b>攻撃(a)</b> … EN -1 で攻撃。相手が溜め中なら勝利</li>
-      <li><b>Special attack(S)</b> … EN -3。命中すれば即勝利。同士討ちは相殺</li>
+      <li><b>攻撃(a)</b> … エネルギー -1 で攻撃。相手が溜め中なら勝利</li>      
+      <li><b>守る(b)</b> … シールド -1 / 攻撃を受ければ エネルギー +1</li>
+      <li><b>溜め(c)</b> … エネルギー +1</li>
+      <li><b>Special attack(S)</b> … エネルギー -3。防御を貫通して攻撃できる。</li>
     </ul>
   </div>
 
@@ -47,11 +51,13 @@
   <div id="panel">
     <div class="box">
       <h3 id="p1Name">AI 1</h3>
+      <span class="wins">Wins: <span id="p1Wins">0</span></span>
       エネルギー:<span id="pEn">0</span><br>
       残りシールド:<span id="pSh">5</span>
     </div>
     <div class="box">
       <h3 id="p2Name">AI 2</h3>
+      <span class="wins">Wins: <span id="p2Wins">0</span></span>
       エネルギー:<span id="aEn">0</span><br>
       残りシールド:<span id="aSh">5</span>
     </div>
@@ -77,6 +83,9 @@
   <!-- ==== Firebase SDK (互換レイヤ―版) ==== -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+  <!-- TensorFlow.js ライブラリ -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
 
   <!-- 音声ファイル用のaudioタグ (bodyの閉じタグの直前などが推奨) -->
   <audio id="soundTameru" src="audio/tameru.mp3" preload="auto"></audio>
