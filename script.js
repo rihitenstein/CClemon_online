@@ -622,6 +622,17 @@ function listenRoom(){
       playerShield = myRoomData[FIREBASE_KEY_SHIELD];
       opponentEnergy = opponentRoomData[FIREBASE_KEY_ENERGY];
       opponentShield = opponentRoomData[FIREBASE_KEY_SHIELD];
+
+      // デバッグログ: Firebaseから受信した現在のエネルギーとシールドを表示
+      if (currentGameMode === GAME_MODE_PVP) {
+          console.log(`[DEBUG] Firebase data received via listener:`);
+          console.log(`  My Role (${myPlayerRole}): Energy=${myRoomData[FIREBASE_KEY_ENERGY]}, Shield=${myRoomData[FIREBASE_KEY_SHIELD]}`);
+          console.log(`  Opponent Role (${opponentPlayerRole}): Energy=${opponentRoomData[FIREBASE_KEY_ENERGY]}, Shield=${opponentRoomData[FIREBASE_KEY_SHIELD]}`);
+          // マッチ終了後のリセット値になっているか確認するログ
+          if (player1Wins >= WINS_TO_VICTORY || player2Wins >= WINS_TO_VICTORY) {
+              console.log(`[DEBUG] Match ended. Checking if Firebase data reflects reset values (Energy=0, Shield=${PLAYER_INITIAL_SHIELD}): My Data Reset = ${myRoomData[FIREBASE_KEY_ENERGY] === 0 && myRoomData[FIREBASE_KEY_SHIELD] === PLAYER_INITIAL_SHIELD}, Opponent Data Reset = ${opponentRoomData[FIREBASE_KEY_ENERGY] === 0 && opponentRoomData[FIREBASE_KEY_SHIELD] === PLAYER_INITIAL_SHIELD}`);
+          }
+      }
       showUI(); // UIを更新
     }
 
@@ -780,11 +791,62 @@ function resolveMoves(playerMove, opponentMove) { // この関数はラウンド
     // マッチ勝利判定
     if (player1Wins >= WINS_TO_VICTORY) {
       let matchWinMsg = `${p1DisplayName} won the match ${player1Wins} - ${player2Wins}!`;
-      flashMessage(matchWinMsg, FLASH_WIN_LOSE_DURATION_MS * 1.5, resetMatch, true); // マッチ勝利カットイン
+      // PvPマッチ終了時のFirebaseリセット処理をコールバックに含める
+      // このコールバックが呼ばれるのは flashMessage の表示後。
+      // その時点のグローバルな currentRoomRef や myPlayerRole は変わっている可能性があるため、
+      // マッチ終了判定時点の値をキャプチャしておく。
+      const pvpMatchEnded = (currentGameMode === GAME_MODE_PVP);
+      const roomRefAtMatchEnd = pvpMatchEnded ? currentRoomRef : null;
+      const playerRoleAtMatchEnd = pvpMatchEnded ? myPlayerRole : null;
+
+      const callbackAfterMatchEnd = () => {
+        // キャプチャした情報を使ってFirebaseを更新
+        if (pvpMatchEnded && roomRefAtMatchEnd && playerRoleAtMatchEnd) {
+          const resetData = {
+            [`${PLAYER_ROLE_P1}/${FIREBASE_KEY_ENERGY}`]: 0,
+            [`${PLAYER_ROLE_P1}/${FIREBASE_KEY_SHIELD}`]: PLAYER_INITIAL_SHIELD,
+            [`${PLAYER_ROLE_P2}/${FIREBASE_KEY_ENERGY}`]: 0,
+            [`${PLAYER_ROLE_P2}/${FIREBASE_KEY_SHIELD}`]: PLAYER_INITIAL_SHIELD
+            // 名前はリセットしない
+          };
+          roomRefAtMatchEnd.update(resetData)
+            .then(() => {
+              console.log(`Both players' energy/shield reset on Firebase after PvP match.`);
+            })
+            .catch(error => {
+              console.error(`Error resetting players' energy/shield on Firebase:`, error);
+            });
+        }
+        resetMatch(); // ローカルのゲーム状態（勝利数、エネルギー、シールドなど）をリセット
+      };
+      flashMessage(matchWinMsg, FLASH_WIN_LOSE_DURATION_MS * 1.5, callbackAfterMatchEnd, true);
       // Q学習更新はラウンドごとに行うので、ここでは不要 (下記で処理)
     } else if (player2Wins >= WINS_TO_VICTORY) {
       let matchWinMsg = `${p2DisplayName} won the match ${player2Wins} - ${player1Wins}!`;
-      flashMessage(matchWinMsg, FLASH_WIN_LOSE_DURATION_MS * 1.5, resetMatch, true); // マッチ勝利カットイン
+      const pvpMatchEnded = (currentGameMode === GAME_MODE_PVP);
+      const roomRefAtMatchEnd = pvpMatchEnded ? currentRoomRef : null;
+      const playerRoleAtMatchEnd = pvpMatchEnded ? myPlayerRole : null;
+
+      const callbackAfterMatchEnd = () => {
+        if (pvpMatchEnded && roomRefAtMatchEnd && playerRoleAtMatchEnd) {
+          const resetData = {
+            [`${PLAYER_ROLE_P1}/${FIREBASE_KEY_ENERGY}`]: 0,
+            [`${PLAYER_ROLE_P1}/${FIREBASE_KEY_SHIELD}`]: PLAYER_INITIAL_SHIELD,
+            [`${PLAYER_ROLE_P2}/${FIREBASE_KEY_ENERGY}`]: 0,
+            [`${PLAYER_ROLE_P2}/${FIREBASE_KEY_SHIELD}`]: PLAYER_INITIAL_SHIELD
+            // 名前はリセットしない
+          };
+          roomRefAtMatchEnd.update(resetData)
+            .then(() => {
+              console.log(`Both players' energy/shield reset on Firebase after PvP match.`);
+            })
+            .catch(error => {
+              console.error(`Error resetting players' energy/shield on Firebase:`, error);
+            });
+        }
+        resetMatch();
+      };
+      flashMessage(matchWinMsg, FLASH_WIN_LOSE_DURATION_MS * 1.5, callbackAfterMatchEnd, true);
     } else {
       // マッチは継続、ラウンドの勝敗のみ表示
       flashMessage(roundWinnerMessage, FLASH_WIN_LOSE_DURATION_MS, () => {
@@ -1001,6 +1063,26 @@ function resetRound() {
 
   playerEnergy = 0; opponentEnergy = 0;
   playerShield = PLAYER_INITIAL_SHIELD; opponentShield = PLAYER_INITIAL_SHIELD;
+
+  // PvPモードで、かつマッチがまだ終了していないラウンドリセットの場合、Firebaseの値を更新
+  if (currentGameMode === GAME_MODE_PVP && currentRoomRef &&
+      player1Wins < WINS_TO_VICTORY && player2Wins < WINS_TO_VICTORY) {
+    const resetDataForRound = {
+      [`${PLAYER_ROLE_P1}/${FIREBASE_KEY_ENERGY}`]: 0,
+      [`${PLAYER_ROLE_P1}/${FIREBASE_KEY_SHIELD}`]: PLAYER_INITIAL_SHIELD,
+      [`${PLAYER_ROLE_P2}/${FIREBASE_KEY_ENERGY}`]: 0,
+      [`${PLAYER_ROLE_P2}/${FIREBASE_KEY_SHIELD}`]: PLAYER_INITIAL_SHIELD
+      // 名前はリセットしない
+    };
+    currentRoomRef.update(resetDataForRound)
+      .then(() => {
+        console.log(`Firebase energy/shield reset for new round (PvP match continuing).`);
+      })
+      .catch(error => {
+        console.error(`Error resetting Firebase energy/shield for new round (PvP):`, error);
+      });
+  }
+
   showUI(); // UIを初期状態に更新
   resultMessageElement.textContent = ''; // 結果メッセージをクリア
 
@@ -1033,6 +1115,8 @@ function resetMatch() {
   resetRound(); // ラウンドの状態もリセット
   // resetRound内でEvEの次のターンが呼ばれる場合があるので、showUIはresetRoundの後が良い
   showUI(); // UIを完全に初期状態に更新 (勝利数含む)
+  // PvPモードでマッチが終了した場合のFirebaseリセット処理は、
+  // resolveMoves内のflashMessageのコールバックに移動しました。
 }
 
 /**
